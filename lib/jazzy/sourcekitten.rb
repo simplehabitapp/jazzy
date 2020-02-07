@@ -470,6 +470,9 @@ module Jazzy
       # Don't present type attributes on extensions
       return parsed_decl if declaration.type.extension?
 
+      # workaround SR-12139
+      annotated_decl_body.sub!(/mutating\s+mutating/, 'mutating')
+
       decl =
         if prefer_parsed_decl?(parsed_decl,
                                annotated_decl_body,
