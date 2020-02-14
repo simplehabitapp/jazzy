@@ -748,6 +748,9 @@ module Jazzy
       @skip_undocumented = skip_undocumented
       @stats = Stats.new
       sourcekitten_json = filter_files(JSON.parse(sourcekitten_output))
+
+      File.open('raw_sourcekitten_output', 'w') { |file| file.write(sourcekitten_json) }
+
       docs = make_source_declarations(sourcekitten_json).concat inject_docs
       docs = expand_extensions(docs)
       docs = deduplicate_declarations(docs)
@@ -757,7 +760,8 @@ module Jazzy
         # Remove top-level enum cases because it means they have an ACL lower
         # than min_acl
         docs = docs.reject { |doc| doc.type.swift_enum_element? }
-      end
+      end      
+
       ungrouped_docs = docs
       docs = SourceCategory.group_docs(docs)
       make_doc_urls(docs)
