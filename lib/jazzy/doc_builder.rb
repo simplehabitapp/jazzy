@@ -1,7 +1,7 @@
 require 'fileutils'
 require 'mustache'
 require 'pathname'
-require 'sassc'
+require 'sass'
 
 require 'jazzy/config'
 require 'jazzy/doc'
@@ -10,6 +10,7 @@ require 'jazzy/documentation_generator'
 require 'jazzy/search_builder'
 require 'jazzy/jazzy_markdown'
 require 'jazzy/podspec_documenter'
+require 'jazzy/readme_generator'
 require 'jazzy/source_declaration'
 require 'jazzy/source_document'
 require 'jazzy/source_module'
@@ -29,53 +30,61 @@ module Jazzy
     # @return [Array] doc structure comprised of
     #                     section names & child names & URLs
     def self.doc_structure_for_docs(docs)
-      docs
-        .map do |doc|
-          children = children_for_doc(doc)
-          {
-            section: doc.name,
-            url: doc.url,
-            children: children,
-          }
-        end
-        .select do |structure|
-          if Config.instance.hide_unlisted_documentation
-            unlisted_prefix = Config.instance.custom_categories_unlisted_prefix
-            structure[:section] != "#{unlisted_prefix}Guides"
+      docs.map do |doc|
+        children = doc.children
+                      .sort_by { |c| [c.nav_order, c.name, c.usr || ''] }
+                      .flat_map do |child|
+          if child.type.overview?
+            doc_structure_for_docs([child])
           else
-            true
+            doc_structure_for_child(child)
           end
         end
+
+        {
+          section: doc.name,
+          url: doc.url,
+          children: children,
+          level: doc.level,
+        }
+      end
     end
 
-    def self.children_for_doc(doc)
-      doc.children
-         .sort_by { |c| [c.nav_order, c.name, c.usr || ''] }
-         .flat_map do |child|
-        # FIXME: include arbitrarily nested extensible types
-        [{ name: child.name, url: child.url }] +
-          Array(child.children.select do |sub_child|
-            sub_child.type.swift_extensible? || sub_child.type.extension?
-          end).map do |sub_child|
-            { name: "– #{sub_child.name}", url: sub_child.url }
-          end
-      end
+    # Generate structure for children of a category in sidebar navigation.
+    # @return [Array] doc structure compromised of
+    #                     name and url of the child as well as
+    #                     any possible nested children.
+    def self.doc_structure_for_child(child)
+      # FIXME: include arbitrarily nested extensible types
+      [{ name: child.name, url: child.url, children: nil }] +
+        Array(child.children.select do |sub_child|
+          sub_child.type.swift_extensible? || sub_child.type.extension?
+        end).map do |sub_child|
+          { name: "– #{sub_child.name}", url: sub_child.url, children: nil }
+        end
     end
 
     # Build documentation from the given options
     # @param [Config] options
     # @return [SourceModule] the documented source module
     def self.build(options)
-      if options.sourcekitten_sourcefile_configured
-        stdout = '[' + options.sourcekitten_sourcefile.map(&:read)
-                              .join(',') + ']'
-      elsif options.podspec_configured
-        pod_documenter = PodspecDocumenter.new(options.podspec)
-        stdout = pod_documenter.sourcekitten_output(options)
+      if options.sourcekitten_sourcefile
+        stdout = options.sourcekitten_sourcefile.read
       else
-        stdout = Dir.chdir(options.source_directory) do
-          arguments = SourceKitten.arguments_from_options(options)
-          SourceKitten.run_sourcekitten(arguments)
+        if options.podspec_configured
+          pod_documenter = PodspecDocumenter.new(options.podspec)
+          stdout = pod_documenter.sourcekitten_output(options)
+        else
+          stdout = Dir.chdir(options.source_directory) do
+            arguments = SourceKitten.arguments_from_options(options)
+            SourceKitten.run_sourcekitten(arguments)
+          end
+        end
+        unless $?.success?
+          warn 'Please pass in xcodebuild arguments using -x'
+          warn 'If build arguments are correct, please file an issue on ' \
+            'https://github.com/realm/jazzy/issues'
+          exit $?.exitstatus || 1
         end
       end
 
@@ -100,10 +109,11 @@ module Jazzy
 
     def self.each_doc(output_dir, docs, &block)
       docs.each do |doc|
-        next unless doc.render_as_page?
-        # Filepath is relative to documentation root:
-        path = output_dir + doc.filepath
+        next unless doc.render?
+        # Assuming URL is relative to documentation root:
+        path = output_dir + (doc.url || "#{doc.name}.html")
         block.call(doc, path)
+        next if doc.name == 'index'
         each_doc(
           output_dir,
           doc.children,
@@ -203,7 +213,8 @@ module Jazzy
       assets_directory = Config.instance.theme_directory + 'assets'
       FileUtils.cp_r(assets_directory.children, destination)
       Pathname.glob(destination + 'css/**/*.scss').each do |scss|
-        css = SassC::Engine.new(scss.read).render
+        contents = scss.read
+        css = Sass::Engine.new(contents, syntax: :scss).render
         css_filename = scss.sub(/\.scss$/, '')
         css_filename.open('w') { |f| f.write(css) }
         FileUtils.rm scss
@@ -335,7 +346,6 @@ module Jazzy
     # Build mustache item for a top-level doc
     # @param [Hash] item Parsed doc child item
     # @param [Config] options Build options
-    # rubocop:disable Metrics/MethodLength
     def self.render_item(item, source_module)
       # Combine abstract and discussion into abstract
       abstract = (item.abstract || '') + (item.discussion || '')
@@ -343,7 +353,6 @@ module Jazzy
         name:                       item.name,
         abstract:                   abstract,
         declaration:                item.display_declaration,
-        language:                   item.display_language,
         other_language_declaration: item.display_other_language_declaration,
         usr:                        item.usr,
         dash_type:                  item.type.dash_type,
@@ -352,21 +361,15 @@ module Jazzy
         from_protocol_extension:    item.from_protocol_extension,
         return:                     item.return,
         parameters:                 (item.parameters if item.parameters.any?),
-        url:                        (item.url if item.render_as_page?),
+        url:                        (item.url if item.children.any?),
         start_line:                 item.start_line,
         end_line:                   item.end_line,
-        direct_link:                item.omit_content_from_parent?,
-        deprecation_message:        item.deprecation_message,
-        unavailable_message:        item.unavailable_message,
-        usage_discouraged:          item.usage_discouraged?,
       }
     end
-    # rubocop:enable Metrics/MethodLength
 
-    def self.make_task(mark, uid, items, doc_model)
+    def self.make_task(mark, uid, items)
       {
         name: mark.name,
-        name_html: (render(doc_model, mark.name) if mark.name),
         uid: URI.encode(uid),
         items: items,
         pre_separator: mark.has_start_dash,
@@ -390,8 +393,36 @@ module Jazzy
         else
           mark_names_counts[uid] = 1
         end
-        make_task(mark, uid, items, mark_children.first)
+        make_task(mark, uid, items)
       end
+    end
+
+    def self.render_subsections(subsections, source_module)
+      subsections.map do |subsection|
+        overview = render_overview(subsection)
+        tasks = render_tasks(
+          source_module,
+          subsection.children.reject { |c| c.type.overview? },
+        )
+
+        {
+          name: subsection.name,
+          overview: overview,
+          uid: URI.encode(subsection.name),
+          url: subsection.url,
+          level: subsection.level,
+          tasks: tasks,
+        }
+      end
+    end
+
+    def self.render_overview(doc)
+      overview = (doc.abstract || '') + (doc.discussion || '')
+      alternative_abstract = doc.alternative_abstract
+      if alternative_abstract
+        overview = render(doc, alternative_abstract) + overview
+      end
+      overview
     end
 
     # rubocop:disable Metrics/MethodLength
@@ -402,15 +433,11 @@ module Jazzy
     # @param [Array] doc_structure doc structure comprised of section names and
     #        child names and URLs. @see doc_structure_for_docs
     def self.document(source_module, doc_model, path_to_root)
-      if doc_model.type.markdown?
+      if doc_model.type.kind == 'document.markdown'
         return document_markdown(source_module, doc_model, path_to_root)
       end
 
-      overview = (doc_model.abstract || '') + (doc_model.discussion || '')
-      alternative_abstract = doc_model.alternative_abstract
-      if alternative_abstract
-        overview = render(doc_model, alternative_abstract) + overview
-      end
+      overview = render_overview(doc_model)
 
       doc = Doc.new # Mustache model instance
       doc[:custom_head] = Config.instance.custom_head
@@ -423,15 +450,15 @@ module Jazzy
       doc[:declaration] = doc_model.display_declaration
       doc[:overview] = overview
       doc[:structure] = source_module.doc_structure
-      doc[:tasks] = render_tasks(source_module, doc_model.children)
+      categories, children =
+        doc_model.children.partition { |c| c.type.overview? }
+      doc[:tasks] = render_tasks(source_module, children)
+      doc[:subsections] = render_subsections(categories, source_module)
       doc[:module_name] = source_module.name
       doc[:author_name] = source_module.author_name
       doc[:github_url] = source_module.github_url
       doc[:dash_url] = source_module.dash_url
       doc[:path_to_root] = path_to_root
-      doc[:deprecation_message] = doc_model.deprecation_message
-      doc[:unavailable_message] = doc_model.unavailable_message
-      doc[:usage_discouraged] = doc_model.usage_discouraged?
       doc.render.gsub(ELIDED_AUTOLINK_TOKEN, path_to_root)
     end
     # rubocop:enable Metrics/MethodLength

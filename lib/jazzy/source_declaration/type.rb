@@ -137,6 +137,10 @@ module Jazzy
         kind == 'sourcekitten.source.lang.objc.decl.unexposed'
       end
 
+      def overview?
+        Type.overview == self
+      end
+
       def self.overview
         Type.new('Overview')
       end
