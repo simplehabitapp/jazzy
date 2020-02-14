@@ -47,8 +47,8 @@ module Jazzy
             # Doc name, find it
             docs_with_name, docs = docs.partition do |doc|
               puts "is_a_regex"
-              puts name.is_a?(Regex) 
-              name.is_a?(Regex) ? doc.name.match(name) : doc.name == name
+              puts name.is_a?(Regexp) 
+              name.is_a?(Regexp) ? doc.name.match(name) : doc.name == name
             end
 
             if docs_with_name.empty?
