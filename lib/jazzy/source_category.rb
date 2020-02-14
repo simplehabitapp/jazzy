@@ -36,7 +36,9 @@ module Jazzy
             children, docs = group_custom_categories(docs, [child])
           else
             # Doc name, find it
-            children, docs = docs.partition { |doc| doc.name == child }
+            children, docs = docs.partition do |doc|
+              name.is_a?(Regex) ? doc.name.match(name) : doc.name == name
+            end
             if children.empty?
               STDERR.puts(
                 'WARNING: No documented top-level declarations match ' \
