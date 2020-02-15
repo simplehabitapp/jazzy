@@ -827,9 +827,6 @@ module Jazzy
       @skip_undocumented = skip_undocumented
       @stats = Stats.new
       sourcekitten_json = filter_files(JSON.parse(sourcekitten_output).flatten)
-
-      File.open('raw_sourcekitten_output', 'w') { |file| file.write(sourcekitten_json) }
-      
       docs = make_source_declarations(sourcekitten_json).concat inject_docs
       docs = expand_extensions(docs)
       docs = deduplicate_declarations(docs)

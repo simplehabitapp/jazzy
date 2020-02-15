@@ -46,9 +46,14 @@ module Jazzy
           else
             # Doc name, find it
             docs_with_name, docs = docs.partition do |doc|
-              puts "is_a_regex"
-              puts name.is_a?(Regexp) 
-              name.is_a?(Regexp) ? doc.name.match(name) : doc.name == name
+              if child.is_a?(Regexp)
+                doc.name.match(child)
+              elsif child.is_a?(String) && child.include?("/")
+                regexp = Regexp.new child.tr('/', '')
+                doc.name.match(regexp)                  
+              else
+                doc.name == child
+              end
             end
 
             if docs_with_name.empty?
