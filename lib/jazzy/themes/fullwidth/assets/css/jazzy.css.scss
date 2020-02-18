@@ -330,8 +330,12 @@ pre code {
   padding: 0 0 0 $gutter/2;
 }
 
-.collapsed > * {
+.collapsed > ul {
   display: none;
+}
+
+.collapsed.a {
+  pointer-events: none
 }
 
 .nav-group-tasks .nav-group-tasks {
