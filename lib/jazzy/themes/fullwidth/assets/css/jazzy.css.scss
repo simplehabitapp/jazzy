@@ -330,6 +330,10 @@ pre code {
   padding: 0 0 0 $gutter/2;
 }
 
+.collapsed > * {
+  display: none;
+}
+
 .nav-group-tasks .nav-group-tasks {
   margin: 0;
   padding: 0 0 0 $gutter;
