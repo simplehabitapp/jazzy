@@ -20,7 +20,7 @@ module Jazzy
     def self.make_index(readme_path)
       SourceDocument.new.tap do |sd|
         sd.name = 'index'
-        sd.url = sd.name + '.html'
+        sd.url = sd.name.downcase + '.html'
         sd.readme_path = readme_path
       end
     end
