@@ -40,14 +40,9 @@ module Jazzy
     def self.group_custom_categories(docs, categories)
       group = categories.map do |category|
         children = category['children'].flat_map do |child|
-          puts child
-          puts "child is #{child.class}"
           if child.is_a?(Hash)
             # Nested category, recurse
             docs_with_name, docs = group_custom_categories(docs, [child])
-#          elsif child.is_a?(String) && JSON.parse(child).is_a?(Hash)
-#            puts "found hash is #{JSON.parse(child)}"
-#            docs_with_name, docs = group_custom_categories(docs, [JSON.parse(child)])
           else
             # Doc name, find it
             docs_with_name, docs = docs.partition do |doc|
