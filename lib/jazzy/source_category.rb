@@ -49,7 +49,11 @@ module Jazzy
               if child.is_a?(Regexp)
                 doc.name.match(child)
               elsif child.is_a?(String) && child.include?("/")
-                regexp = Regexp.new child.tr('/', '')
+                # Note `eval` here is being used as a hack to convert this to a Regex
+                # When specified in the jazzy config, these regexs are coming back as string types
+                # Trying to use Regex.new child results in either the loss of regex modifiers (such as /i or a failure to convert to a Regex at all)
+                # Since this is only used internally, leaving with eval for now.
+                regexp = eval child
                 doc.name.match(regexp)                  
               else
                 doc.name == child
